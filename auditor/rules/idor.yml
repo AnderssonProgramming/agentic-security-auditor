@@ -27,12 +27,14 @@ rules:
           metavariable: $METHOD
           regex: ^(get|put|patch|delete|post)$
       - pattern-either:
-          - pattern: $REPO.$FIND(req.params.$ID, ...)
-          - pattern: '$REPO.$FIND({ id: req.params.$ID }, ...)'
+          - patterns:
+              - pattern-either:
+                  - pattern: $REPO.$FIND(req.params.$ID, ...)
+                  - pattern: '$REPO.$FIND({ id: req.params.$ID }, ...)'
+              - metavariable-regex:
+                  metavariable: $FIND
+                  regex: ^(findById|findByPk|findOne|findUnique|get|delete|update|destroy)$
           - pattern: $DB.query($SQL, [req.params.$ID])
-      - metavariable-regex:
-          metavariable: $FIND
-          regex: ^(findById|findByPk|findOne|findUnique|get|delete|update|destroy)$
       # Lookups that already reference the authenticated principal are scoped.
       - pattern-not-inside: |
           $X(..., <... req.user ...>, ...)
