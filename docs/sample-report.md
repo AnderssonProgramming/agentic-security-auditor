@@ -1,0 +1,162 @@
+<!-- Illustrative output: rendered by auditor/report.py from representative findings for examples/vulnerable-api (not a live scan). -->
+
+# 🛠️ Security & Quality Report — `REMEDIATED`
+
+| Field | Value |
+|---|---|
+| Repository | `examples/vulnerable-api` |
+| Commit | `3f9c2a1d7be04c55e1a9f0b2c6d8e4a7b1c0f9e2` |
+| Run ID | `8841203317` |
+| Generated (UTC) | 2026-10-02 15:42:07 |
+| Deploy target | netlify |
+| Deployment | not attempted |
+| Fix attempts | 1 / 2 |
+
+## 1. Executive Summary
+
+**Gate verdict: REMEDIATED**
+
+- 4 blocking finding(s) fixed and validated; awaiting autofix PR merge
+
+| Priority | Baseline | After remediation |
+|---|---:|---:|
+| P0 Critical | 1 | 0 |
+| P1 High | 3 | 0 |
+| P2 Medium | 1 | 1 |
+| P3 Low | 0 | 0 |
+| **Blocking total** | **4** | **0** |
+
+## 2. Scan Coverage
+
+| Scanner | Scope | Status |
+|---|---|---|
+| npm-audit | Dependency CVEs (npm advisory DB) | ✅ ran |
+| trivy | Dependency CVEs, secrets, IaC misconfig | ✅ ran |
+| semgrep | SAST: injection, IDOR, unsafe sinks | ✅ ran |
+| gitleaks | Secrets in working tree | ✅ ran |
+| snyk | Dependency CVEs (Snyk DB, optional) | skipped |
+
+
+## 3. Findings (prioritized by risk score)
+
+| # | Priority | Risk | CVSS | Type | Identifier | Location | Fixed in | Status |
+|---|---|---:|---:|---|---|---|---|---|
+| 1 | P0 | 10.0 | 9.8 | code | `node-sqli-raw-query-string-building` | `src/app.ts:20` | – | ✅ fixed |
+| 2 | P1 | 8.6 | 8.1 | code | `express-idor-unscoped-lookup-by-id` | `src/app.ts:27` | – | ✅ fixed |
+| 3 | P1 | 7.5 | 7.5 | dependency | [CVE-2022-24999](https://avd.aquasec.com/nvd/cve-2022-24999) | `qs@6.7.0` | 6.7.3 | ✅ fixed |
+| 4 | P1 | 7.5 | 7.2 | dependency | [GHSA-35jh-r3h4-6jhm](https://github.com/advisories/GHSA-35jh-r3h4-6jhm) | `lodash@4.17.20` | 4.17.21 | ✅ fixed |
+| 5 | P2 | 6.4 | 6.1 | dependency | [GHSA-rv95-896h-c2vc](https://github.com/advisories/GHSA-rv95-896h-c2vc) | `express@4.17.1` | 4.19.2 | open (non-blocking) |
+
+
+## 4. Remediation Log
+
+### 4.1 Refactor src/app.ts:20 to remediate node-sqli-raw-query-string-building — applied
+
+- **Strategy:** `code-refactor`
+- **Rationale:** User input moved from the SQL text into a pg bind parameter; ILIKE semantics preserved via string concatenation in SQL. Behaviour change: none
+
+<details><summary>Diff</summary>
+
+```diff
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -18,5 +18,8 @@
+ app.get("/api/products", async (req: Request, res: Response) => {
+-  const { rows } = await db.query(`SELECT id, name, price FROM products WHERE name ILIKE '%${req.query.q}%'`);
++  const { rows } = await db.query(
++    "SELECT id, name, price FROM products WHERE name ILIKE '%' || $1 || '%'",
++    [String(req.query.q ?? "")],
++  );
+   res.json(rows);
+ });
+```
+
+</details>
+
+### 4.2 Refactor src/app.ts:27 to remediate express-idor-unscoped-lookup-by-id — applied
+
+- **Strategy:** `code-refactor`
+- **Rationale:** Lookup scoped to the authenticated caller; non-owned invoices return the existing 404 so existence is not leaked. Behaviour change: other users' invoices now return 404
+
+<details><summary>Diff</summary>
+
+```diff
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -25,6 +25,9 @@
+   if (!req.user) return res.status(401).json({ error: "unauthenticated" });
+-  const { rows } = await db.query("SELECT * FROM invoices WHERE id = $1", [req.params.id]);
++  const { rows } = await db.query("SELECT * FROM invoices WHERE id = $1 AND owner_id = $2", [
++    req.params.id,
++    req.user.id,
++  ]);
+   if (rows.length === 0) return res.status(404).json({ error: "not found" });
+```
+
+</details>
+
+### 4.3 Upgrade direct dependency lodash to ^4.17.21 — applied
+
+- **Strategy:** `dependency-upgrade`
+- **Rationale:** GHSA-35jh-r3h4-6jhm is fixed in lodash@4.17.21; same major version, no API change expected.
+
+<details><summary>Diff</summary>
+
+```diff
+--- a/package.json
++++ b/package.json
+@@ -10,7 +10,7 @@
+   "dependencies": {
+     "express": "4.17.1",
+-    "lodash": "4.17.20",
++    "lodash": "^4.17.21",
+     "pg": "^8.11.0"
+   },
+```
+
+</details>
+
+### 4.4 Pin transitive dependency qs to ^6.7.3 via npm overrides — applied
+
+- **Strategy:** `dependency-override`
+- **Rationale:** CVE-2022-24999 is fixed in qs@6.7.3; same major version, no API change expected.
+
+<details><summary>Diff</summary>
+
+```diff
+--- a/package.json
++++ b/package.json
+@@ -20,5 +20,8 @@
+     "typescript": "^5.6.0"
+-  }
++  },
++  "overrides": {
++    "qs": "^6.7.3"
++  }
+ }
+```
+
+</details>
+
+## 5. Validation
+
+| Check | Result |
+|---|---|
+| Clean install (`npm ci`) | ✅ pass |
+| Type check (`tsc --noEmit`) | ✅ pass |
+| Test suite (`npm test`) | ✅ pass |
+| Blocking findings after re-scan | 0 |
+| Regressions introduced by patches | 0 |
+
+
+## 6. Post-Production Checklist
+
+- [ ] Quality gate passed (`CLEAN`)
+- [ ] Deployed to netlify
+- [ ] Smoke test on production URL / internal-track build
+- [ ] Error-rate and latency dashboards checked 30 min after release
+- [ ] Rotated every credential reported as a secret finding
+- [ ] Escalated items assigned an owner and due date
+
+---
+<sub>Generated by agentic-security-auditor v0.1.0 · Scanners: npm audit, Trivy, Semgrep, Gitleaks · Gate policy: block on secrets, P0 and P1.</sub>
