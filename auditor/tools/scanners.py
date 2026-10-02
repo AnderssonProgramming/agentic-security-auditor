@@ -89,6 +89,7 @@ def parse_trivy(report: dict) -> list[Finding]:
                     fixed_version=(v.get("FixedVersion") or "").split(",")[0].strip() or None,
                     file=target,
                     url=v.get("PrimaryURL"),
+                    aliases=list(v.get("VendorIDs") or []),
                 )
             )
         for s in result.get("Secrets", []) or []:

@@ -48,6 +48,7 @@ class Finding:
     line: int | None = None
     snippet: str | None = None
     url: str | None = None
+    aliases: list[str] = field(default_factory=list)  # e.g. GHSA ids for a CVE
     # Filled by the Triage Officer.
     priority: str | None = None  # P0..P3
     risk_score: float | None = None
