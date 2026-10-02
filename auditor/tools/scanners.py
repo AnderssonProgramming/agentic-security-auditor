@@ -150,7 +150,7 @@ def parse_semgrep(report: dict) -> list[Finding]:
                 rule_id=r.get("check_id", "semgrep"),
                 title=extra.get("message", "").strip().splitlines()[0] if extra.get("message") else r.get("check_id", ""),
                 severity=Severity.parse(meta.get("impact") or extra.get("severity")),
-                cvss=meta.get("cvss"),
+                cvss=float(meta["cvss"]) if meta.get("cvss") else None,
                 cwe=[c.split(":")[0] for c in cwe],
                 file=r.get("path"),
                 line=(r.get("start") or {}).get("line"),

@@ -12,7 +12,7 @@ rules:
       cwe: ["CWE-639: Authorization Bypass Through User-Controlled Key"]
       owasp: ["A01:2021 - Broken Access Control"]
       impact: HIGH
-      cvss: 8.1
+      cvss: "8.1"
       confidence: MEDIUM
       requires-llm-review: true
     patterns:

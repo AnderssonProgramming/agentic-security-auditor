@@ -11,7 +11,7 @@ rules:
       cwe: ["CWE-89: SQL Injection"]
       owasp: ["A03:2021 - Injection"]
       impact: CRITICAL
-      cvss: 9.8
+      cvss: "9.8"
     mode: taint
     pattern-sources:
       - pattern-either:
