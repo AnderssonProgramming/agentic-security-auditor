@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-security-auditor"
+version = "0.1.0"
+description = "Multi-agent (LangGraph) security auditor for Node.js/TypeScript repositories with gated deployment."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=1.0",
+    "anthropic>=1.0",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+security-auditor = "auditor.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["auditor*"]
+
+[tool.setuptools.package-data]
+auditor = ["templates/*.j2", "rules/*.yml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
