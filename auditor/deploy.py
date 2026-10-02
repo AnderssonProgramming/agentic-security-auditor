@@ -30,8 +30,15 @@ def evaluate_gate(state: AuditState) -> tuple[str, list[str]]:
     validation = state.get("validation")
 
     if not baseline_blocking:
-        if validation is not None and not validation.tests_ok:
-            reasons.append("test suite failed")
+        if validation is None:
+            reasons.append("test suite was not run")
+        else:
+            if not validation.install_ok:
+                reasons.append("dependency install failed")
+            if not validation.typecheck_ok:
+                reasons.append("type check failed")
+            if not validation.tests_ok:
+                reasons.append("test suite failed or missing")
         return ("BLOCKED" if reasons else "CLEAN"), reasons or ["0 blocking findings, all scanners completed"]
 
     if validation is None:
