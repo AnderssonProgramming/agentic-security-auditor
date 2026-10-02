@@ -191,7 +191,7 @@ def parse_gitleaks(report: list) -> list[Finding]:
 
 def gitleaks_scan(repo: str, report_file: str) -> tuple[list[Finding], CommandResult]:
     result = run(
-        ["gitleaks", "detect", "--no-banner", "--redact", "--report-format", "json", "--report-path", report_file],
+        ["gitleaks", "detect", "--no-git", "--no-banner", "--redact", "--report-format", "json", "--report-path", report_file],
         cwd=repo,
         timeout=300,
     )
