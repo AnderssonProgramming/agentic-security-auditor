@@ -49,6 +49,10 @@ def _major(version: str | None) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _version_key(version: str | None) -> tuple[int, ...]:
+    return tuple(int(n) for n in re.findall(r"\d+", version or "")[:3])
+
+
 def _unified_diff(path: str, before: str, after: str) -> str:
     return "".join(
         difflib.unified_diff(
@@ -78,25 +82,26 @@ def restore(repo: str, patch: Patch) -> None:
 
 
 # --------------------------------------------------------------------------- dependencies
-def plan_dependency_fix(f: Finding, package_json: dict) -> tuple[str, str] | None:
+def plan_dependency_fix(f: Finding, package_json: dict, fixed_version: str | None = None) -> tuple[str, str] | None:
     """Return (strategy, target) or ``None`` when the fix needs a human (major bump)."""
-    if not f.package or not f.fixed_version:
+    fixed_version = fixed_version or f.fixed_version
+    if not f.package or not fixed_version:
         return None
     declared = {**package_json.get("dependencies", {}), **package_json.get("devDependencies", {})}
     current = declared.get(f.package) or f.installed_version
-    cur_major, fix_major = _major(current), _major(f.fixed_version)
+    cur_major, fix_major = _major(current), _major(fixed_version)
     if cur_major is not None and fix_major is not None and fix_major > cur_major:
         return None
     if f.package in declared:
-        return "dependency-upgrade", f"^{f.fixed_version}"
-    return "dependency-override", f"^{f.fixed_version}"
+        return "dependency-upgrade", f"^{fixed_version}"
+    return "dependency-override", f"^{fixed_version}"
 
 
-def apply_dependency_fix(repo: str, f: Finding) -> Patch | None:
+def apply_dependency_fix(repo: str, f: Finding, fixed_version: str | None = None) -> Patch | None:
     root = Path(repo)
     pkg_path = root / "package.json"
     package_json = json.loads(pkg_path.read_text(encoding="utf-8"))
-    plan = plan_dependency_fix(f, package_json)
+    plan = plan_dependency_fix(f, package_json, fixed_version)
     if plan is None:
         return None
     strategy, target = plan
@@ -123,7 +128,7 @@ def apply_dependency_fix(repo: str, f: Finding) -> Patch | None:
         diff=_unified_diff("package.json", before, after),
         applied=True,
         snapshot=snap,
-        rationale=f"{f.rule_id} is fixed in {f.package}@{f.fixed_version}; same major version, no API change expected.",
+        rationale=f"{f.rule_id} is fixed in {f.package}@{target.lstrip('^')}; same major version, no API change expected.",
     )
 
 
@@ -179,16 +184,26 @@ def develop_patches(repo: str, findings: list[Finding], llm=None, previous_failu
     """Attempt one patch per actionable finding. Returns (patches, escalations)."""
     patches: list[Patch] = []
     escalations: list[str] = []
+    upgraded: set[str] = set()
+    # A package with several advisories must go to the highest fixed version among them.
+    best_fix: dict[str, str] = {}
+    for f in findings:
+        if f.kind == "dependency" and f.package and f.fixed_version:
+            if _version_key(f.fixed_version) > _version_key(best_fix.get(f.package)):
+                best_fix[f.package] = f.fixed_version
     for f in findings:
         if f.false_positive:
             continue
         try:
             if f.kind == "dependency":
-                patch = apply_dependency_fix(repo, f)
+                if f.package in upgraded:
+                    continue  # one bump per package covers all its advisories
+                patch = apply_dependency_fix(repo, f, best_fix.get(f.package))
                 if patch is None:
                     escalations.append(f"{f.package} {f.rule_id}: no same-major fix available, needs human review")
                     continue
                 patches.append(patch)
+                upgraded.add(f.package)
             elif f.kind == "code":
                 if llm is None:
                     escalations.append(f"{f.file}:{f.line} {f.rule_id}: no LLM configured")
