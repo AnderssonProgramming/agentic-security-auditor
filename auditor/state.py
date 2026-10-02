@@ -85,6 +85,8 @@ class Patch:
     applied: bool = False
     rolled_back: bool = False
     rationale: str = ""
+    # Pre-patch file contents (None = file did not exist), used for rollback.
+    snapshot: dict[str, str | None] = field(default_factory=dict, repr=False)
 
 
 @dataclass
@@ -114,6 +116,8 @@ class AuditState(TypedDict, total=False):
     findings: list[Finding]  # latest scan (post-validation re-scan when patches exist)
     prioritized: list[Finding]  # actionable baseline findings, highest risk first
     patches: list[Patch]
+    escalations: list[str]  # findings the Fixer could not (or must not) patch
+    fix_feedback: str | None  # validation failure fed back into the next fix attempt
     fix_attempts: int
     validation: ValidationResult | None
     verdict: Verdict
