@@ -40,7 +40,15 @@ def _has_script(repo: str, name: str) -> bool:
     return bool(script) and "no test specified" not in script
 
 
-def validate(repo: str, baseline: list[Finding]) -> tuple[ValidationResult, list[Finding], list[str]]:
+def validate(
+    repo: str, baseline: list[Finding], prioritized: list[Finding] | None = None
+) -> tuple[ValidationResult, list[Finding], list[str]]:
+    """Install, type-check, test and re-scan.
+
+    When ``prioritized`` is given nothing was patched, so the (expensive) re-scan is
+    skipped and those findings are reused: this is the "tests only" path that every
+    commit goes through before it can be called CLEAN.
+    """
     install = run(["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=repo, timeout=900)
 
     typecheck_ok = True
@@ -51,8 +59,11 @@ def validate(repo: str, baseline: list[Finding]) -> tuple[ValidationResult, list
     # A project without a test suite cannot prove behaviour preservation: fail closed.
     tests_ok = tests.ok and _has_script(repo, "test")
 
-    findings, tool_errors = scan(repo)
-    current = prioritize(findings)
+    if prioritized is None:
+        findings, tool_errors = scan(repo)
+        current = prioritize(findings)
+    else:
+        current, tool_errors = prioritized, []
     still_blocking = blocking(current)
     regressions = new_findings(baseline, still_blocking)
 

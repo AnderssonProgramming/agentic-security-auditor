@@ -108,6 +108,7 @@ class AuditState(TypedDict, total=False):
     deploy_target: Literal["netlify", "play-store", "none"]
     dry_run: bool
     max_fix_attempts: int
+    report_dir: str
 
     baseline_findings: list[Finding]  # first scan, never mutated
     findings: list[Finding]  # latest scan (post-validation re-scan when patches exist)
