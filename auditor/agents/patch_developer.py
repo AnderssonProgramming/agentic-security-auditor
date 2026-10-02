@@ -31,8 +31,9 @@ FORBIDDEN_IN_REPLACEMENT = [
     (re.compile(r"eslint-disable"), "lint suppression"),
     (re.compile(r"\bas\s+any\b|:\s*any\b"), "`any` escape hatch"),
     (re.compile(r"\$(queryRaw|executeRaw)Unsafe"), "unsafe raw query API"),
-    (re.compile(r"`[^`]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^`]*\$\{", re.IGNORECASE), "interpolated SQL"),
 ]
+# Must not survive in the replacement at all, even if the original already had it.
+INTERPOLATED_SQL = re.compile(r"`[^`]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^`]*\$\{", re.IGNORECASE)
 
 PROTECTED_PATHS = re.compile(
     r"(^|/)(package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|tsconfig.*\.json|\.github/|.*\.(test|spec)\.[jt]sx?$|__tests__/)"
@@ -148,6 +149,8 @@ def validate_code_patch(f: Finding, source: str, answer: dict) -> str:
     for pattern, label in FORBIDDEN_IN_REPLACEMENT:
         if pattern.search(replacement) and not pattern.search(original):
             raise PatchRejected(f"replacement introduces {label}")
+    if INTERPOLATED_SQL.search(replacement):
+        raise PatchRejected("replacement still builds SQL with interpolated SQL text")
     changed = sum(
         1
         for line in difflib.unified_diff(original.splitlines(), replacement.splitlines(), lineterm="")
