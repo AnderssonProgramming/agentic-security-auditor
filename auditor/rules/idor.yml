@@ -28,7 +28,7 @@ rules:
           regex: ^(get|put|patch|delete|post)$
       - pattern-either:
           - pattern: $REPO.$FIND(req.params.$ID, ...)
-          - pattern: $REPO.$FIND({ id: req.params.$ID }, ...)
+          - pattern: '$REPO.$FIND({ id: req.params.$ID }, ...)'
           - pattern: $DB.query($SQL, [req.params.$ID])
       - metavariable-regex:
           metavariable: $FIND
