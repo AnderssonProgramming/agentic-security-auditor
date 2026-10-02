@@ -1,0 +1,40 @@
+rules:
+  - id: express-idor-unscoped-lookup-by-id
+    message: >-
+      Possible Insecure Direct Object Reference: a record is looked up by a
+      client-supplied identifier without scoping it to the authenticated user
+      (req.user). Add an ownership predicate (e.g. WHERE id = $1 AND owner_id = $2)
+      or an explicit authorization check before returning the object.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: ["CWE-639: Authorization Bypass Through User-Controlled Key"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      impact: HIGH
+      cvss: 8.1
+      confidence: MEDIUM
+      requires-llm-review: true
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              $APP.$METHOD($PATH, ..., (req, res, ...) => { ... })
+          - pattern-inside: |
+              $APP.$METHOD($PATH, ..., async (req, res, ...) => { ... })
+          - pattern-inside: |
+              $APP.$METHOD($PATH, ..., function (req, res, ...) { ... })
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(get|put|patch|delete|post)$
+      - pattern-either:
+          - pattern: $REPO.$FIND(req.params.$ID, ...)
+          - pattern: $REPO.$FIND({ id: req.params.$ID }, ...)
+          - pattern: $DB.query($SQL, [req.params.$ID])
+      - metavariable-regex:
+          metavariable: $FIND
+          regex: ^(findById|findByPk|findOne|findUnique|get|delete|update|destroy)$
+      # Lookups that already reference the authenticated principal are scoped.
+      - pattern-not-inside: |
+          $X(..., <... req.user ...>, ...)
+      - pattern-not-inside: |
+          if (<... req.user ...>) { ... }

@@ -1,0 +1,36 @@
+rules:
+  - id: node-sqli-raw-query-string-building
+    message: >-
+      SQL query built from string concatenation or a template literal with
+      request-derived data. Use parameterized placeholders ($1 / ?) and pass
+      values in the bind array instead.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: ["CWE-89: SQL Injection"]
+      owasp: ["A03:2021 - Injection"]
+      impact: CRITICAL
+      cvss: 9.8
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.params
+          - pattern: $REQ.query
+          - pattern: $REQ.body
+          - pattern: $REQ.headers
+          - pattern: $REQ.cookies
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: Number(...)
+          - pattern: parseInt(...)
+          - pattern: $X.escape(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.query($SQL, ...)
+              - pattern: $DB.execute($SQL, ...)
+              - pattern: $DB.raw($SQL, ...)
+              - pattern: $DB.$queryRawUnsafe($SQL, ...)
+              - pattern: $DB.$executeRawUnsafe($SQL, ...)
+          - focus-metavariable: $SQL
