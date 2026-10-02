@@ -1,0 +1,173 @@
+# Agentic security audit + gated deployment.
+#
+#   pull_request ─► audit ─► PR comment with the report
+#                         └► REMEDIATED? open an autofix PR with the validated patches
+#   push to main ─► audit ─► verdict == CLEAN ─► deploy (Netlify or Play Store)
+#
+# Secrets are split by job: the audit job (which executes untrusted PR code and talks
+# to the LLM) never sees deploy credentials; deploy jobs never see the LLM key and run
+# behind a protected GitHub Environment.
+name: security-audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: security-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_DIR: ${{ vars.APP_DIR || 'examples/vulnerable-api' }}
+  DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET || 'netlify' }} # netlify | play-store
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write # autofix branch
+      pull-requests: write # report comment + autofix PR
+    outputs:
+      verdict: ${{ steps.auditor.outputs.verdict }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Audit the PR head itself so autofix patches apply cleanly to the PR branch.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install scanners
+        run: |
+          pip install semgrep
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          GITLEAKS_VERSION=8.21.2
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          trivy --version && semgrep --version && gitleaks version
+
+      - name: Install auditor
+        run: pip install .
+
+      - name: Install app dependencies (no lifecycle scripts)
+        working-directory: ${{ env.APP_DIR }}
+        run: npm ci --ignore-scripts || npm install --ignore-scripts
+
+      - name: Run agentic audit
+        id: auditor
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} # empty on fork PRs -> fixer escalates instead
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          set +e
+          # Fixer is only enabled on PRs; on main we audit the commit exactly as merged.
+          ATTEMPTS=${{ github.event_name == 'pull_request' && 2 || 0 }}
+          security-auditor --repo "$APP_DIR" --target none --max-fix-attempts "$ATTEMPTS" --report-dir reports
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: reports/
+
+      - name: Publish report to job summary
+        if: always()
+        run: cat reports/security-report-*.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment report on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: security-audit
+          path: ${{ steps.auditor.outputs.report_path }}
+
+      - name: Open autofix PR with validated patches
+        if: steps.auditor.outputs.verdict == 'REMEDIATED' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: security/autofix-pr-${{ github.event.pull_request.number }}
+          base: ${{ github.head_ref }}
+          add-paths: ${{ env.APP_DIR }}
+          commit-message: "fix(security): apply validated auditor patches"
+          title: "fix(security): auditor patches for #${{ github.event.pull_request.number }}"
+          body-path: ${{ steps.auditor.outputs.report_path }}
+          labels: security, autofix
+
+      - name: Enforce gate
+        if: always()
+        run: |
+          echo "verdict=${{ steps.auditor.outputs.verdict }}"
+          test "${{ steps.auditor.outputs.verdict }}" = "CLEAN"
+
+  deploy-netlify:
+    needs: audit
+    if: needs.audit.outputs.verdict == 'CLEAN' && github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.DEPLOY_TARGET != 'play-store'
+    runs-on: ubuntu-latest
+    environment: production # required reviewers / wait timers live here
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build
+        working-directory: ${{ env.APP_DIR }}
+        run: npm ci && npm run build
+      - name: Deploy to Netlify (production)
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          npx --yes netlify-cli@17 deploy --prod --dir "${NETLIFY_PUBLISH_DIR:-dist}" \
+            --site "$NETLIFY_SITE_ID" --message "audit ${{ github.run_id }} @ ${GITHUB_SHA::7}"
+
+  deploy-play-store:
+    needs: audit
+    if: needs.audit.outputs.verdict == 'CLEAN' && github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.DEPLOY_TARGET == 'play-store'
+    runs-on: ubuntu-latest
+    environment: play-store
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - name: Build signed AAB
+        working-directory: ${{ env.APP_DIR }}/android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+          ./gradlew bundleRelease
+      - name: Upload to internal track
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          PLAY_JSON_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}
+        run: |
+          echo "$PLAY_JSON_KEY" > "$RUNNER_TEMP/play.json"
+          bundle exec fastlane supply --aab android/app/build/outputs/bundle/release/app-release.aab \
+            --track internal --package_name "${{ vars.ANDROID_PACKAGE_NAME }}" --json_key "$RUNNER_TEMP/play.json"
