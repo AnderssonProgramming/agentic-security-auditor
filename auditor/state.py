@@ -28,7 +28,7 @@ class Severity(str, Enum):
 
 
 FindingKind = Literal["dependency", "code", "secret", "config"]
-Verdict = Literal["CLEAN", "BLOCKED", "PENDING"]
+Verdict = Literal["CLEAN", "REMEDIATED", "BLOCKED", "PENDING"]
 
 
 @dataclass
@@ -110,8 +110,8 @@ class AuditState(TypedDict, total=False):
     max_fix_attempts: int
 
     baseline_findings: list[Finding]  # first scan, never mutated
-    findings: list[Finding]  # latest scan
-    prioritized: list[Finding]  # actionable findings, highest risk first
+    findings: list[Finding]  # latest scan (post-validation re-scan when patches exist)
+    prioritized: list[Finding]  # actionable baseline findings, highest risk first
     patches: list[Patch]
     fix_attempts: int
     validation: ValidationResult | None
